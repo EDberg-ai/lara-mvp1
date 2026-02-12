@@ -1,0 +1,139 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Teacher/User Management
+model Teacher {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String
+  schoolId    String?
+
+  // Tier & Usage
+  tier        String   @default("starter")
+  aiCallsUsed Int      @default(0)
+  aiCallsReset DateTime @default(now()) // Monthly reset date
+
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tasks       Task[]
+  folders     Folder[]
+  sessions    TaskSession[]
+  usageLogs   AiUsageLog[]
+
+  @@index([email])
+}
+
+// Folder Organization
+model Folder {
+  id          String   @id @default(uuid())
+  teacherId   String
+  name        String
+  description String?  @db.Text
+  color       String   @default("#3b82f6")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@index([teacherId])
+}
+
+// Task Management
+model Task {
+  id                    String   @id @default(uuid())
+  teacherId             String
+  title                 String
+  prompt                String   @db.Text
+  taskCode              String   @unique // 6-digit alphanumeric (e.g., "ABC-123")
+
+  // Configuration
+  universalExpectations Boolean  @default(true)
+  successCriteria       String[] // Array of criteria strings
+
+  // Task Management
+  status                String   @default("active") // "active" | "inactive"
+  folderId              String?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  teacher               Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  folder                Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  sessions              TaskSession[]
+
+  @@index([teacherId])
+  @@index([folderId])
+  @@index([status])
+  @@index([taskCode])
+}
+
+// Task Session (Persistent Metadata - Live Data in Redis)
+model TaskSession {
+  id          String    @id @default(uuid())
+  taskId      String
+  teacherId   String
+
+  // Session State
+  isLive      Boolean   @default(false)
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  // Aggregated Metrics (updated periodically)
+  totalStudents Int     @default(0)
+  submissions   Int     @default(0)
+  feedbackSent  Int     @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  teacher     Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([teacherId])
+  @@index([isLive])
+}
+
+// AI Usage Log (Audit Trail)
+model AiUsageLog {
+  id            String   @id @default(uuid())
+  teacherId     String
+  taskId        String?
+  sessionId     String?
+
+  // Usage Details
+  operation     String   // "single_feedback" | "batch_feedback" | "regenerate"
+  studentCount  Int      @default(1)
+  tokensUsed    Int?
+  model         String   // "claude-haiku-4-5-20251001"
+
+  // Validation Results
+  validationWarnings String[] // Array of warning codes
+  hardBlockReason    String?  // If blocked, why
+
+  createdAt     DateTime @default(now())
+
+  // Relations
+  teacher       Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId])
+  @@index([createdAt])
+}
