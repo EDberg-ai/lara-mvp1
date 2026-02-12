@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  CREATED
+  ACTIVE
+  CLOSED
+}
+
+model Teacher {
+  id                  String        @id @default(uuid())
+  email               String        @unique
+  name                String
+  schoolId            String?
+  tier                String        @default("starter")
+  aiCallsUsed         Int           @default(0)
+  aiCallsReset        DateTime      @default(now())
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  passwordHash        String?
+  onboardingCompleted Boolean       @default(false)
+  usageLogs           AiUsageLog[]
+  folders             Folder[]
+  tasks               Task[]
+  sessions            TaskSession[]
+
+  @@index([email])
+}
+
+model Folder {
+  id          String   @id @default(uuid())
+  teacherId   String
+  name        String
+  description String?
+  color       String   @default("#3b82f6")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@index([teacherId])
+}
+
+model Task {
+  id                    String        @id @default(uuid())
+  teacherId             String
+  title                 String
+  prompt                String
+  taskCode              String        @unique
+  universalExpectations Boolean       @default(true)
+  successCriteria       String[]
+  status                String        @default("active")
+  folderId              String?
+  imageUrl              String?
+  fileType              String?       // 'image' | 'pdf'
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  folder                Folder?       @relation(fields: [folderId], references: [id])
+  teacher               Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  sessions              TaskSession[]
+
+  @@index([teacherId])
+  @@index([folderId])
+  @@index([status])
+  @@index([taskCode])
+}
+
+model TaskSession {
+  id                 String              @id @default(uuid())
+  taskId             String
+  teacherId          String
+  isLive             Boolean             @default(false)
+  status             SessionStatus       @default(ACTIVE)
+  classIdentifier    String?             // e.g., "9A" for student ID generation
+  startedAt          DateTime?
+  endedAt            DateTime?
+  dataPersisted      Boolean             @default(false)
+  dataExpiresAt      DateTime?
+  totalStudents      Int                 @default(0)
+  submissions        Int                 @default(0)
+  feedbackSent       Int                 @default(0)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  feedbacksGenerated Int                 @default(0)
+  students           Student[]
+  studentSubmissions StudentSubmission[]
+  task               Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  teacher            Teacher             @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([teacherId])
+  @@index([isLive])
+  @@index([status])
+}
+
+model Student {
+  id          String              @id @default(uuid())
+  sessionId   String
+  name        String
+  status      String              @default("active")
+  joinedAt    DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  session     TaskSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  submissions StudentSubmission[]
+
+  @@index([sessionId])
+  @@index([status])
+}
+
+model StudentSubmission {
+  id                 String              @id @default(uuid())
+  studentId          String
+  sessionId          String
+  content            String
+  previousContent    String?
+  timeElapsed        Int?
+  revisionCount      Int                 @default(0)
+  isRevision         Boolean             @default(false)
+  feedbackStatus     String              @default("pending")
+  validationWarnings String[]
+  selectedNextStepId String?
+  detectionResult    String?             // 'aligned' | 'uncertain' - revision alignment detection
+  timestamp          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  session            TaskSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student            Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  feedback           SubmissionFeedback?
+
+  @@index([studentId])
+  @@index([sessionId])
+  @@index([feedbackStatus])
+}
+
+model SubmissionFeedback {
+  id              String            @id @default(uuid())
+  submissionId    String            @unique
+  goal            String
+  masteryAchieved Boolean           @default(false)
+  strengths       Json
+  growthAreas     Json
+  nextSteps       Json
+  approvedBy      String?           // teacherId who approved
+  approvedAt      DateTime?         // timestamp of approval
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  submission      StudentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model AiUsageLog {
+  id                 String   @id @default(uuid())
+  teacherId          String
+  taskId             String?
+  sessionId          String?
+  operation          String
+  studentCount       Int      @default(1)
+  tokensUsed         Int?
+  model              String
+  validationWarnings String[]
+  hardBlockReason    String?
+  createdAt          DateTime @default(now())
+  teacher            Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId])
+  @@index([createdAt])
+}
